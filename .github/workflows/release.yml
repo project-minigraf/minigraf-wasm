@@ -1,0 +1,118 @@
+name: WASM Release
+
+on:
+  repository_dispatch:
+    types: [core-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. v1.2.0)'
+        required: true
+        type: string
+
+jobs:
+  set-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      semver: ${{ steps.ver.outputs.semver }}
+    steps:
+      - id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            TAG="${{ github.event.client_payload.version }}"
+          else
+            TAG="${{ inputs.version }}"
+          fi
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "semver=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  publish-browser:
+    name: Build and publish @minigraf/browser
+    needs: set-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Build browser WASM
+        run: wasm-pack build --target web --features browser
+      - name: Stamp package name and version
+        env:
+          VERSION: ${{ needs.set-version.outputs.semver }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
+            exit 1
+          fi
+          node -e "
+            const fs = require('fs');
+            const p = 'pkg/package.json';
+            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+            pkg.name = '@minigraf/browser';
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+          "
+      - name: Publish @minigraf/browser to npm
+        working-directory: pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  publish-wasi:
+    name: Build and publish @minigraf/wasi
+    needs: set-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: project-minigraf/minigraf
+          ref: ${{ needs.set-version.outputs.version }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Build WASI binary
+        run: cargo build --target wasm32-wasip1 --release --bin minigraf
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Check out wasm binding repo for wasi-pkg
+        uses: actions/checkout@v4
+        with:
+          repository: project-minigraf/minigraf-wasm
+          path: wasm-binding
+      - name: Stage WASI wasm binary
+        run: cp target/wasm32-wasip1/release/minigraf.wasm wasm-binding/wasi-pkg/minigraf-wasi.wasm
+      - name: Stamp package version
+        env:
+          VERSION: ${{ needs.set-version.outputs.semver }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
+            exit 1
+          fi
+          node -e "
+            const fs = require('fs');
+            const p = 'wasm-binding/wasi-pkg/package.json';
+            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+          "
+      - name: Test WASI package
+        working-directory: wasm-binding/wasi-pkg
+        run: npm test
+      - name: Publish @minigraf/wasi to npm
+        working-directory: wasm-binding/wasi-pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

@@ -1,0 +1,35 @@
+name: WASM CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-browser:
+    name: Build browser WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build browser WASM
+        run: wasm-pack build --target web --features browser
+
+  build-wasi:
+    name: Build WASI binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: project-minigraf/minigraf
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Build WASI binary
+        run: cargo build --target wasm32-wasip1 --release --bin minigraf
