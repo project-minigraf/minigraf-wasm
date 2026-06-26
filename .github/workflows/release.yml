@@ -11,25 +11,57 @@ on:
         type: string
 
 jobs:
-  set-version:
+  prepare:
+    name: Pin version, commit, tag
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
       semver: ${{ steps.ver.outputs.semver }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.MINIGRAF_RELEASE_TOKEN }}
+
       - id: ver
         run: |
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            TAG="${{ github.event.client_payload.version }}"
-          else
-            TAG="${{ inputs.version }}"
-          fi
-          echo "version=$TAG" >> "$GITHUB_OUTPUT"
-          echo "semver=${TAG#v}" >> "$GITHUB_OUTPUT"
+          V="${{ github.event.client_payload.version || github.event.inputs.version }}"
+          echo "tag=$V" >> "$GITHUB_OUTPUT"
+          echo "semver=${V#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Wait for minigraf ${{ steps.ver.outputs.semver }} on crates.io
+        run: |
+          for i in $(seq 1 10); do
+            if cargo search minigraf --limit 1 | grep -q '"${{ steps.ver.outputs.semver }}"'; then
+              echo "Found minigraf ${{ steps.ver.outputs.semver }} on crates.io"
+              exit 0
+            fi
+            echo "Attempt $i/10 — not yet indexed, waiting 15s..."
+            sleep 15
+          done
+          echo "minigraf ${{ steps.ver.outputs.semver }} not found on crates.io after 150s" >&2
+          exit 1
+
+      - name: Pin minigraf version in Cargo.toml
+        run: |
+          sed -i 's/^minigraf = "[^"]*"/minigraf = "=${{ steps.ver.outputs.semver }}"/' Cargo.toml
+
+      - name: Update Cargo.lock
+        run: cargo update --precise "${{ steps.ver.outputs.semver }}" minigraf
+
+      - name: Commit and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: release ${{ steps.ver.outputs.tag }}"
+          git tag "${{ steps.ver.outputs.tag }}"
+          git push origin main --follow-tags
 
   publish-browser:
     name: Build and publish @minigraf/browser
-    needs: set-version
+    needs: prepare
     runs-on: ubuntu-latest
     environment:
       name: npm
@@ -39,6 +71,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -53,7 +87,7 @@ jobs:
         run: wasm-pack build --target web --features browser
       - name: Stamp package name and version
         env:
-          VERSION: ${{ needs.set-version.outputs.semver }}
+          VERSION: ${{ needs.prepare.outputs.semver }}
         run: |
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
@@ -73,7 +107,7 @@ jobs:
 
   publish-wasi:
     name: Build and publish @minigraf/wasi
-    needs: set-version
+    needs: prepare
     runs-on: ubuntu-latest
     environment:
       name: npm
@@ -85,7 +119,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: project-minigraf/minigraf
-          ref: ${{ needs.set-version.outputs.version }}
+          ref: ${{ needs.prepare.outputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
@@ -100,12 +134,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: project-minigraf/minigraf-wasm
+          ref: ${{ needs.prepare.outputs.tag }}
           path: wasm-binding
       - name: Stage WASI wasm binary
         run: cp target/wasm32-wasip1/release/minigraf.wasm wasm-binding/wasi-pkg/minigraf-wasi.wasm
       - name: Stamp package version
         env:
-          VERSION: ${{ needs.set-version.outputs.semver }}
+          VERSION: ${{ needs.prepare.outputs.semver }}
         run: |
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
@@ -124,4 +159,5 @@ jobs:
       - name: Publish @minigraf/wasi to npm
         working-directory: wasm-binding/wasi-pkg
         run: npm publish --access public
+
 
