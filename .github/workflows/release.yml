@@ -31,6 +31,12 @@ jobs:
     name: Build and publish @minigraf/browser
     needs: set-version
     runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@minigraf/browser
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -39,9 +45,9 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
       - name: Build browser WASM
         run: wasm-pack build --target web --features browser
@@ -63,14 +69,18 @@ jobs:
           "
       - name: Publish @minigraf/browser to npm
         working-directory: pkg
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
 
   publish-wasi:
     name: Build and publish @minigraf/wasi
     needs: set-version
     runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@minigraf/wasi
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,9 +92,9 @@ jobs:
       - name: Build WASI binary
         run: cargo build --target wasm32-wasip1 --release --bin minigraf
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
       - name: Check out wasm binding repo for wasi-pkg
         uses: actions/checkout@v4
@@ -113,6 +123,5 @@ jobs:
         run: npm test
       - name: Publish @minigraf/wasi to npm
         working-directory: wasm-binding/wasi-pkg
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
+
