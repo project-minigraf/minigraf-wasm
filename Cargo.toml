@@ -4,6 +4,7 @@ version = "1.1.1"
 edition = "2024"
 publish = false
 readme = "README.md"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/project-minigraf/minigraf-wasm"
 description = "wasm-pack build shim for Minigraf browser and WASI targets"
 
