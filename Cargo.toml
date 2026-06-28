@@ -12,7 +12,7 @@ description = "wasm-pack build shim for Minigraf browser and WASI targets"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-minigraf = { version = "=1.2.0", features = ["browser"] }
+minigraf = { version = "=1.2.1", features = ["browser"] }
 
 [features]
 browser = ["minigraf/browser"]
