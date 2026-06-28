@@ -133,7 +133,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: project-minigraf/minigraf
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: v${{ needs.prepare.outputs.semver }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
@@ -173,6 +173,3 @@ jobs:
       - name: Publish @minigraf/wasi to npm
         working-directory: wasm-binding/wasi-pkg
         run: npm publish --access public
-
-
-
