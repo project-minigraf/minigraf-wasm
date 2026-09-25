@@ -73,9 +73,20 @@ jobs:
           git push origin main
           git push origin "${{ steps.ver.outputs.tag }}" || true
 
+  # Gate every build/publish job on this binding's test suite, run against the
+  # exact pinned core version that prepare just tagged. ci.yml also runs on the
+  # version-pin push to main, but nothing waits on that run.
+  test:
+    name: Test pinned release
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.tag }}
+      core-ref: v${{ needs.prepare.outputs.semver }}
+
   publish-browser:
     name: Build and publish @minigraf/browser
-    needs: prepare
+    needs: [prepare, test]
     runs-on: ubuntu-latest
     environment:
       name: npm
@@ -121,7 +132,7 @@ jobs:
 
   publish-wasi:
     name: Build and publish @minigraf/wasi
-    needs: prepare
+    needs: [prepare, test]
     runs-on: ubuntu-latest
     environment:
       name: npm
