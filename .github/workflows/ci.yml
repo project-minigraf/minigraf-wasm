@@ -2,9 +2,9 @@ name: WASM CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v3]
   pull_request:
-    branches: [main]
+    branches: [main, v3]
   workflow_call:
     inputs:
       ref:
@@ -13,7 +13,7 @@ on:
         type: string
         default: ''
       core-ref:
-        description: 'minigraf core ref to build the WASI binary from (defaults to main)'
+        description: 'minigraf core ref to build the WASI binary from (defaults to v3 on this branch)'
         required: false
         type: string
         default: ''
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: project-minigraf/minigraf
-          ref: ${{ inputs.core-ref || 'main' }}
+          ref: ${{ inputs.core-ref || 'v3' }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1

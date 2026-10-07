@@ -12,7 +12,8 @@ description = "wasm-pack build shim for Minigraf browser and WASI targets"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-minigraf = { version = "=2.0.3", features = ["browser"] }
+# Unreleased v3 core (format v8). Switches to version = "=3.0.0" at the v3.0.0 release.
+minigraf = { git = "https://github.com/project-minigraf/minigraf", rev = "97cd4a2a85301ea3478250dd654139d45a1f7cd0", features = ["browser"] }
 
 [features]
 browser = ["minigraf/browser"]
