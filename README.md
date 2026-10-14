@@ -13,16 +13,35 @@ Two packages are published from this repo:
 ## Browser (`@minigraf/browser`)
 
 ```js
-import init, { MiniGrafDb } from '@minigraf/browser'
+import init, { BrowserDb } from '@minigraf/browser'
 
 await init()
 
-const db = MiniGrafDb.inMemory()
-db.execute('(transact [[:alice :name "Alice"]])')
+const db = await BrowserDb.open('mydb')   // IndexedDB-backed; or BrowserDb.openInMemory() for tests
+await db.execute('(transact [[:alice :name "Alice"]])')
 
-const result = JSON.parse(db.execute('(query [:find ?n :where [?e :name ?n]])'))
+const result = JSON.parse(await db.execute('(query [:find ?n :where [?e :name ?n]])'))
 console.log(result.results[0][0])  // "Alice"
 ```
+
+`execute()` returns a `Promise<string>` containing JSON:
+
+- Query: `{"variables": [...], "results": [[...], ...]}`
+- Transact: `{"transacted": <tx_id>}`
+- Retract: `{"retracted": <tx_id>}`
+- Rule: `{"ok": true}`
+
+Other methods:
+
+| Method | Description |
+|--------|-------------|
+| `BrowserDb.open(name)` | Open or create a database persisted in IndexedDB (async). |
+| `BrowserDb.openInMemory()` | Open a non-persistent database. Data is lost when the page closes. |
+| `db.exportGraph()` | Serialise the database to a `Uint8Array` that is byte-compatible with native `.graph` files. |
+| `await db.importGraph(bytes)` | Replace the database with a `.graph` blob. The blob must be checkpointed, with no pending WAL sidecar. |
+| `await db.checkpoint()` | Flush dirty pages to IndexedDB. You only need it after bulk operations; `execute()` already writes through. Does nothing on in-memory databases. |
+
+`@minigraf/browser` does not run in Node.js. For server-side use, use [`minigraf`](https://www.npmjs.com/package/minigraf).
 
 ## WASI (`@minigraf/wasi`)
 
