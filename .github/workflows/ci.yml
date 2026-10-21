@@ -17,33 +17,62 @@ on:
         required: false
         type: string
         default: ''
+      version:
+        description: 'Version stamped into the tarballs (release.yml passes the release version)'
+        required: false
+        type: string
+        default: '0.0.0-ci'
 
 jobs:
-  build-browser:
-    name: Build browser WASM
+  # Builds both npm tarballs as the release publishes them.
+  package:
+    name: Package
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ inputs.ref }}
+      core-ref: ${{ inputs.core-ref || 'main' }}
+      version: ${{ inputs.version || '0.0.0-ci' }}
+
+  # Installs each tarball into an empty project and runs its README quick start
+  # and the consumer contract: @minigraf/browser in headless Chromium,
+  # @minigraf/wasi under node:wasi on every OS.
+  consumer:
+    name: Consumer test (${{ matrix.package }}, ${{ matrix.os }})
+    needs: package
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { package: browser, os: ubuntu-latest }
+          - { package: wasi, os: ubuntu-latest }
+          - { package: wasi, os: macos-14 }
+          - { package: wasi, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ matrix.package }}
+          path: dist-${{ matrix.package }}
+      - name: Run consumer test
+        shell: bash
+        env:
+          PLAYWRIGHT_DEPS: '1'
+        run: bash consumer-test/run.sh ${{ matrix.package }} local dist-${{ matrix.package }} ${{ inputs.version || '0.0.0-ci' }}
+
+  readme-sync:
+    name: README quick starts match the consumer test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - name: Build browser WASM
-        run: wasm-pack build --target web --features browser
-
-  build-wasi:
-    name: Build WASI binary
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: project-minigraf/minigraf
-          ref: ${{ inputs.core-ref || 'main' }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
-      - name: Build WASI binary
-        run: cargo build --target wasm32-wasip1 --release --bin minigraf
+      - run: |
+          python3 -I consumer-test/readme_sync.py README.md consumer-test/browser/quickstart.js '## Browser (`@minigraf/browser`)'
+          python3 -I consumer-test/readme_sync.py README.md consumer-test/wasi/repl.mjs '## WASI (`@minigraf/wasi`)'
+          python3 -I consumer-test/readme_sync.py wasi-pkg/README.md consumer-test/wasi/repl.mjs

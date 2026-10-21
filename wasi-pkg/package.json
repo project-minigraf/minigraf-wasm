@@ -15,7 +15,9 @@
     "index.js",
     "index.d.ts",
     "minigraf-wasi.wasm",
-    "README.md"
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ],
   "main": "index.js",
   "types": "index.d.ts",

@@ -45,14 +45,24 @@ Other methods:
 
 ## WASI (`@minigraf/wasi`)
 
-```js
-import { instantiateMinigrafWasiWith } from '@minigraf/wasi'
-import { WASI } from 'node:wasi'
+The package is the Minigraf REPL compiled to `wasm32-wasip1`, not a library: it
+reads Datalog commands from stdin and prints the results to stdout, over an
+in-memory database. In `repl.mjs`:
 
-const wasi = new WASI({ version: 'preview1' })
-const instance = await instantiateMinigrafWasiWith(wasi)
-// Use the WebAssembly instance exports
+```js
+import { WASI } from "node:wasi";
+import { startMinigrafWasi } from "@minigraf/wasi";
+
+const wasi = new WASI({ version: "preview1", args: ["minigraf"], env: process.env });
+await startMinigrafWasi(wasi);
 ```
+
+```bash
+printf '%s\n' '(transact [[:alice :name "Alice"]])' '(query [:find ?n :where [?e :name ?n]])' | node repl.mjs
+```
+
+For the browser, or for a database that persists, use `@minigraf/browser`, or
+[`minigraf`](https://www.npmjs.com/package/minigraf) in Node.js.
 
 ## Building from source
 
