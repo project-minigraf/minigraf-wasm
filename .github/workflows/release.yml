@@ -81,6 +81,9 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.sha }}
       core-ref: v${{ needs.prepare.outputs.semver }}
+      # The tarballs are built and consumer-tested here at the release
+      # version; publish uploads exactly these files.
+      version: ${{ needs.prepare.outputs.semver }}
 
   tag:
     name: Push tag and update main
@@ -115,103 +118,59 @@ jobs:
           git push origin --delete "release/$TAG" \
             || echo "::warning::Could not delete branch release/$TAG"
 
-  publish-browser:
-    name: Build and publish @minigraf/browser
-    needs: [prepare, tag]
+  publish:
+    name: Publish @minigraf/${{ matrix.package }}
+    needs: [prepare, test, tag]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [browser, wasi]
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@minigraf/browser
+      url: https://www.npmjs.com/package/@minigraf/${{ matrix.package }}
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-      - name: Build browser WASM
-        run: wasm-pack build --target web --features browser
-      - name: Stamp package name and version
-        env:
-          VERSION: ${{ needs.prepare.outputs.semver }}
-        run: |
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
-            exit 1
-          fi
-          node -e "
-            const fs = require('fs');
-            const p = 'pkg/package.json';
-            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
-            pkg.name = '@minigraf/browser';
-            pkg.version = process.env.VERSION;
-            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
-          "
-      - name: Publish @minigraf/browser to npm
-        working-directory: pkg
-        run: npm publish --access public
 
-  publish-wasi:
-    name: Build and publish @minigraf/wasi
-    needs: [prepare, tag]
-    runs-on: ubuntu-latest
-    environment:
-      name: npm
-      url: https://www.npmjs.com/package/@minigraf/wasi
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          repository: project-minigraf/minigraf
-          ref: v${{ needs.prepare.outputs.semver }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
-      - name: Build WASI binary
-        run: cargo build --target wasm32-wasip1 --release --bin minigraf
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-      - name: Check out wasm binding repo for wasi-pkg
-        uses: actions/checkout@v4
-        with:
-          repository: project-minigraf/minigraf-wasm
-          ref: ${{ needs.prepare.outputs.tag }}
-          path: wasm-binding
-      - name: Stage WASI wasm binary
-        run: cp target/wasm32-wasip1/release/minigraf.wasm wasm-binding/wasi-pkg/minigraf-wasi.wasm
-      - name: Stamp package version
+          name: dist-${{ matrix.package }}
+          path: dist
+
+      # Re-runs are expected (e.g. after a partial failure), so a version that is
+      # already on npm is skipped, not treated as an error. Any other npm failure
+      # fails the job.
+      - name: Publish the tested tarball
         env:
+          PACKAGE: ${{ matrix.package }}
           VERSION: ${{ needs.prepare.outputs.semver }}
         run: |
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
-            exit 1
+          TGZ="dist/minigraf-$PACKAGE-$VERSION.tgz"
+          [ -f "$TGZ" ] || { echo "::error::no $TGZ"; ls dist; exit 1; }
+          if [ "$(npm view "@minigraf/$PACKAGE@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "::warning::@minigraf/$PACKAGE@$VERSION is already on npm; skipping"
+            echo "- \`@minigraf/$PACKAGE@$VERSION\` — already published, skipped" >> "$GITHUB_STEP_SUMMARY"
+          else
+            npm publish "$TGZ" --access public
+            echo "- \`@minigraf/$PACKAGE@$VERSION\` — published" >> "$GITHUB_STEP_SUMMARY"
           fi
-          node -e "
-            const fs = require('fs');
-            const p = 'wasm-binding/wasi-pkg/package.json';
-            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
-            pkg.version = process.env.VERSION;
-            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
-          "
-      - name: Test WASI package
-        working-directory: wasm-binding/wasi-pkg
-        run: npm test
-      - name: Publish @minigraf/wasi to npm
-        working-directory: wasm-binding/wasi-pkg
-        run: npm publish --access public
+
+  # Installs the published version from npm and runs the consumer test; on
+  # failure the run fails and a release-broken issue is opened.
+  verify-published:
+    name: Verify the published packages
+    needs: [prepare, publish]
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/verify-published.yml
+    with:
+      version: ${{ needs.prepare.outputs.semver }}
+      ref: ${{ needs.prepare.outputs.tag }}
