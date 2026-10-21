@@ -152,7 +152,8 @@ jobs:
           PACKAGE: ${{ matrix.package }}
           VERSION: ${{ needs.prepare.outputs.semver }}
         run: |
-          TGZ="dist/minigraf-$PACKAGE-$VERSION.tgz"
+          # "./": npm reads a bare "dist/x.tgz" as GitHub shorthand (user/repo).
+          TGZ="./dist/minigraf-$PACKAGE-$VERSION.tgz"
           [ -f "$TGZ" ] || { echo "::error::no $TGZ"; ls dist; exit 1; }
           if [ "$(npm view "@minigraf/$PACKAGE@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
             echo "::warning::@minigraf/$PACKAGE@$VERSION is already on npm; skipping"
