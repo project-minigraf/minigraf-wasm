@@ -1,0 +1,135 @@
+name: Package
+
+# Builds the two npm tarballs exactly as the release publishes them, stamped
+# with `version`: dist-browser (@minigraf/browser, wasm-pack) and dist-wasi
+# (@minigraf/wasi, the core REPL built for wasm32-wasip1 at `core-ref`).
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+        default: ''
+      core-ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+
+jobs:
+  browser:
+    name: Package @minigraf/browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build browser WASM
+        run: wasm-pack build --target web --features browser
+      - name: Stamp package name, version and description; add the licenses
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
+            exit 1
+          fi
+          cp LICENSE-MIT LICENSE-APACHE pkg/
+          node -e "
+            const fs = require('fs');
+            const p = 'pkg/package.json';
+            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+            pkg.name = '@minigraf/browser';
+            pkg.version = process.env.VERSION;
+            pkg.description = 'Minigraf for the browser: a bi-temporal graph database with Datalog queries, persisted in IndexedDB';
+            pkg.files.push('LICENSE-MIT', 'LICENSE-APACHE');
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+          "
+      - name: Pack and check the tarball
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          mkdir dist
+          (cd pkg && npm pack --pack-destination ../dist)
+          TGZ="dist/minigraf-browser-$VERSION.tgz"
+          tar tzf "$TGZ" | sort | tee files.txt
+          for f in package.json README.md LICENSE-MIT LICENSE-APACHE \
+                   minigraf_wasm.js minigraf_wasm.d.ts minigraf_wasm_bg.wasm; do
+            grep -qx "package/$f" files.txt || { echo "::error::$TGZ has no $f"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-browser
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  wasi:
+    name: Package @minigraf/wasi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: project-minigraf/minigraf
+          ref: ${{ inputs.core-ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Build WASI binary
+        run: cargo build --target wasm32-wasip1 --release --bin minigraf
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check out wasm binding repo for wasi-pkg
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          path: wasm-binding
+      - name: Stage the WASI binary and the licenses
+        run: |
+          cp target/wasm32-wasip1/release/minigraf.wasm wasm-binding/wasi-pkg/minigraf-wasi.wasm
+          cp wasm-binding/LICENSE-MIT wasm-binding/LICENSE-APACHE wasm-binding/wasi-pkg/
+      - name: Stamp package version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "ERROR: VERSION '$VERSION' is not semver. Aborting."
+            exit 1
+          fi
+          node -e "
+            const fs = require('fs');
+            const p = 'wasm-binding/wasi-pkg/package.json';
+            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+          "
+      - name: Test WASI package
+        working-directory: wasm-binding/wasi-pkg
+        run: npm test
+      - name: Pack and check the tarball
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          mkdir dist
+          (cd wasm-binding/wasi-pkg && npm pack --pack-destination "$GITHUB_WORKSPACE/dist")
+          TGZ="dist/minigraf-wasi-$VERSION.tgz"
+          tar tzf "$TGZ" | sort | tee files.txt
+          for f in package.json README.md LICENSE-MIT LICENSE-APACHE \
+                   index.js index.d.ts minigraf-wasi.wasm; do
+            grep -qx "package/$f" files.txt || { echo "::error::$TGZ has no $f"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wasi
+          path: dist/*.tgz
+          if-no-files-found: error
