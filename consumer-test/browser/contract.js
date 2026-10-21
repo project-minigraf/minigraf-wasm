@@ -23,16 +23,15 @@ async function run() {
   const rows = JSON.parse(await mem.execute('(query [:find ?n ?a :where [?e :name ?n] [?e :age ?a]])')).results
   check(JSON.stringify(rows) === '[["Alice",30]]', 'in-memory transact and query')
 
-  // Error type: a rejected promise with a string reason. It should carry the
-  // error code ("[PRS-001] ..."), but BrowserDb drops it (minigraf#673); check
-  // for the code once the pinned core has the fix.
+  // Error type: a rejected promise whose reason starts with the error code,
+  // as on every other API ("[PRS-011] Unknown command: nosuchcommand").
   let reason
   try {
     await mem.execute('(nosuchcommand [])')
   } catch (e) {
     reason = e
   }
-  check(typeof reason === 'string' && /nosuchcommand/.test(reason), `an invalid command rejects with its message (${reason})`)
+  check(typeof reason === 'string' && /^\[PRS-011\] .*nosuchcommand/.test(reason), `the error carries its code (${reason})`)
 
   // IndexedDB-backed: survives a page reload.
   const db = await BrowserDb.open('contract')
