@@ -31,6 +31,8 @@ test("package metadata describes the public WASI npm package", () => {
   assert.equal(pkg.main, "index.js");
   assert.equal(pkg.types, "index.d.ts");
   assert.ok(pkg.files.includes("minigraf-wasi.wasm"));
+  assert.ok(pkg.files.includes("LICENSE-MIT"));
+  assert.ok(pkg.files.includes("LICENSE-APACHE"));
 });
 
 test("loader reads and compiles the configured WASI wasm path", async () => {
