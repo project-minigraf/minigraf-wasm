@@ -23,6 +23,20 @@ async function run() {
   const rows = JSON.parse(await mem.execute('(query [:find ?n ?a :where [?e :name ?n] [?e :age ?a]])')).results
   check(JSON.stringify(rows) === '[["Alice",30]]', 'in-memory transact and query')
 
+  // Prepared query (minigraf#181): parse once, run with plain and typed values.
+  await mem.execute('(transact [[:bob :name "Bob"] [:bob :age 41]])')
+  const pq = mem.prepare('(query [:find ?n :where [?e :age $age] [?e :name ?n]])')
+  check(JSON.stringify(JSON.parse(pq.execute({ age: 30 })).results) === '[["Alice"]]', 'prepared query with a number')
+  check(JSON.stringify(JSON.parse(pq.execute({ age: 41n })).results) === '[["Bob"]]', 'prepared query with a bigint')
+  check(JSON.stringify(JSON.parse(pq.execute({ age: { type: 'integer', value: 30 } })).results) === '[["Alice"]]', 'prepared query with a typed value')
+  let missing
+  try {
+    pq.execute({})
+  } catch (e) {
+    missing = e
+  }
+  check(typeof missing === 'string' && missing.startsWith('[API-022] '), `a missing slot is API-022 (${missing})`)
+
   // Error type: a rejected promise whose reason starts with the error code,
   // as on every other API ("[PRS-011] Unknown command: nosuchcommand").
   let reason
