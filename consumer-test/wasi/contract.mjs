@@ -42,6 +42,19 @@ function repl(lines) {
   console.log("ok: in-memory transact and query");
 }
 
+// Sets (minigraf#316): a set literal is stored and printed back, and in? filters.
+{
+  const r = repl([
+    '(transact [[:alice :tags #{1 "x"}]])',
+    "(query [:find ?t :where [?e :tags ?t]])",
+    "(query [:find ?t :where [?e :tags ?t] [(in? 2 ?t)]])",
+  ]);
+  assert.match(r.stdout, /^#\{"?x"? 1\}$/m, `the set did not come back: ${r.stdout}`);
+  assert.match(r.stdout, /No results found/, "in? kept a row without 2");
+  assert.equal(r.stderr, "", "unexpected stderr");
+  console.log("ok: set values");
+}
+
 // Error type: an invalid command is reported with its code, and the REPL goes on.
 {
   const r = repl(["(nosuchcommand [])", "(query [:find ?n :where [?e :name ?n]])"]);
