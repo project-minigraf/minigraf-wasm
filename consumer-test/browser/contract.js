@@ -37,6 +37,15 @@ async function run() {
   }
   check(typeof missing === 'string' && missing.startsWith('[API-022] '), `a missing slot is API-022 (${missing})`)
 
+  // Sets (minigraf#316): a set value comes back as an array, and binds as a
+  // JS Set or the typed form.
+  await mem.execute('(transact [[:alice :tags #{1 "x"}]])')
+  const tags = JSON.parse(await mem.execute('(query [:find ?t :where [?e :tags ?t]])')).results
+  check(JSON.stringify(tags) === '[[["x",1]]]', `a set value comes back as an array (${JSON.stringify(tags)})`)
+  const member = mem.prepare('(query [:find ?n :where [?e :tags ?t] [(in? 1 $s)] [?e :name ?n]])')
+  check(JSON.stringify(JSON.parse(member.execute({ s: new Set([1, 2]) })).results) === '[["Alice"]]', 'a JS Set binds')
+  check(JSON.stringify(JSON.parse(member.execute({ s: { type: 'set', value: [3] } })).results) === '[]', 'a typed set binds')
+
   // Error type: a rejected promise whose reason starts with the error code,
   // as on every other API ("[PRS-011] Unknown command: nosuchcommand").
   let reason
