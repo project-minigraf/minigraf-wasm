@@ -43,6 +43,24 @@ try {
 }
 ```
 
+### Prepared queries
+
+`db.prepare(datalog)` parses a query once and returns a `BrowserPreparedQuery`;
+`execute(bindings)` returns the JSON `execute()` returns, and `query(bindings)` a
+`BrowserCursor`. Both are synchronous. Bindings are an object of slot name (without the
+`$`) to a boolean, a string, `null`, a `bigint` or a `number` (an integer when
+`Number.isInteger` accepts it, else a float), or a typed `{ type, value }` form:
+`{ type: 'float', value: 2 }`, `'keyword'`, `'ref'`, `{ type: 'entity', value: uuid }`,
+`{ type: 'txCount' | 'timestamp', value }` for `:as-of`, and `{ type: 'anyValidTime' }`
+for `:valid-at`. A value that is not a bind value throws a `TypeError`; a missing slot
+throws `[API-022]`, a slot in an attribute position `[API-023]`, and a value of the wrong
+kind `[API-024]`.
+
+```js
+const pq = db.prepare('(query [:find ?n :where [?e :age $age] [?e :name ?n]])')
+JSON.parse(pq.execute({ age: 30 })).results
+```
+
 ### Not available in the browser
 
 `BrowserDb` keeps its pages in memory and writes them to IndexedDB; it has no `.graph`
