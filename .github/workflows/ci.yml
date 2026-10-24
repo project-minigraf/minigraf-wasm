@@ -44,7 +44,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { package: browser, os: ubuntu-latest }
+          - { package: browser, os: ubuntu-24.04 }
           - { package: wasi, os: ubuntu-latest }
           - { package: wasi, os: macos-14 }
           - { package: wasi, os: windows-latest }
