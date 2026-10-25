@@ -61,6 +61,48 @@ const pq = db.prepare('(query [:find ?n :where [?e :age $age] [?e :name ?n]])')
 JSON.parse(pq.execute({ age: 30 })).results
 ```
 
+### User functions
+
+`db.registerPredicate(name, fn)` adds a predicate, called in a query as `[(name ?v)]`.
+`db.registerAggregate(name, { init, step, finish })` adds an aggregate, used in `:find`
+as `(name ?v)` and as a window function with `:over`: `init()` returns a new
+accumulator (one per group or window partition), `step(acc, value)` returns the
+accumulator after `value`, and `finish(acc, count)` returns the result, `count` being
+the number of values stepped. All are called as plain functions, with no `this`.
+
+```js
+db.registerPredicate('adult?', (v) => v.type === 'integer' && v.value >= 18n)
+db.registerAggregate('product', {
+  init: () => 1n,
+  step: (acc, v) => acc * v.value,
+  finish: (acc) => acc,
+})
+await db.execute('(query [:find ?n :where [?e :age ?a] [(adult? ?a)] [?e :name ?n]])')
+await db.execute('(query [:find (product ?a) :where [?e :age ?a]])')
+```
+
+- **Values.** A function receives each value as a `{ type, value }` object: `type` is
+  `'string'`, `'integer'` (`value` a `bigint`), `'float'`, `'boolean'`, `'ref'` (an
+  entity UUID string), `'keyword'`, `'null'` (no `value`) or `'set'` (`value` an array
+  of these). A predicate returns a boolean. `finish` returns a value in any form a
+  prepared query's bindings accept: a plain value or a typed `{ type, value }` form.
+- **Errors.** A function that throws fails the query with `[QRY-014]`, carrying the
+  error's `message` (else `String(e)`), and so does a predicate that returns anything
+  but a boolean, or a `finish` whose result is not a value. Registration throws a
+  `TypeError` when a function is missing, and `[INT-040]` when the name is taken.
+- **Lifecycle.** Registration is synchronous. A query that is already open (a
+  `BrowserCursor`) does not see a function registered after it; every query opened
+  afterwards does. The database keeps each function until it, and every cursor and
+  prepared query opened from it, are freed. There is no unregister.
+- **Cost.** Each value is one call into JavaScript, so a function over many rows costs
+  one call per value.
+- **Calling the database from a function.** A function runs synchronously inside the
+  query that calls it. From there `query`, `prepare` (and the prepared query's
+  `execute`/`query`), `exportGraph`, `registerPredicate` and `registerAggregate` run at
+  once. `execute`, `checkpoint` and `importGraph` return a Promise that starts only after
+  the outer query has returned, so the function cannot wait for it, and the outer query
+  does not see its write.
+
 ### Not available in the browser
 
 `BrowserDb` keeps its pages in memory and writes them to IndexedDB; it has no `.graph`
