@@ -46,6 +46,30 @@ async function run() {
   check(JSON.stringify(JSON.parse(member.execute({ s: new Set([1, 2]) })).results) === '[["Alice"]]', 'a JS Set binds')
   check(JSON.stringify(JSON.parse(member.execute({ s: { type: 'set', value: [3] } })).results) === '[]', 'a typed set binds')
 
+  // User functions (minigraf#180): each value arrives as { type, value }, an
+  // integer's value a bigint; a function that throws fails the query, QRY-014.
+  await mem.execute('(transact [[:carol :name "Carol"] [:carol :age 12]])')
+  mem.registerPredicate('adult?', (v) => v.type === 'integer' && v.value >= 18n)
+  const adults = JSON.parse(await mem.execute('(query [:find ?n :where [?e :age ?a] [(adult? ?a)] [?e :name ?n]])')).results
+  check(JSON.stringify(adults.map((r) => r[0]).sort()) === '["Alice","Bob"]', `a registered predicate (${JSON.stringify(adults)})`)
+  mem.registerAggregate('product', {
+    init: () => 1n,
+    step: (acc, v) => acc * v.value,
+    finish: (acc, count) => (count === 3 ? acc : -1n),
+  })
+  const product = JSON.parse(await mem.execute('(query [:find (product ?a) :where [?e :age ?a]])')).results
+  check(JSON.stringify(product) === '[[14760]]', `a registered aggregate (${JSON.stringify(product)})`)
+  mem.registerPredicate('boom?', () => {
+    throw new Error('boom')
+  })
+  let thrown
+  try {
+    await mem.execute('(query [:find ?n :where [?e :age ?a] [(boom? ?a)] [?e :name ?n]])')
+  } catch (e) {
+    thrown = e
+  }
+  check(thrown === '[QRY-014] user function `boom?` failed: boom', `a function that throws is QRY-014 (${thrown})`)
+
   // Error type: a rejected promise whose reason starts with the error code,
   // as on every other API ("[PRS-011] Unknown command: nosuchcommand").
   let reason
