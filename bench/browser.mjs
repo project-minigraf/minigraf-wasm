@@ -4,8 +4,8 @@ import { cases } from './cases.mjs'
 export async function run(test) {
   await init()
   const db = BrowserDb.openInMemory()
-  const result = await cases(db, 'browser', test)
-  db.free()
+  let result
+  try { result = await cases(db, 'browser', test) } finally { db.free() }
   // A fresh browser context per run isolates IndexedDB. Each write measures
   // one fixed-size commit on a fresh DB; creation is outside the timer.
   for (const suffix of ['indexeddb_write/1k', 'indexeddb_reopen/1k']) {

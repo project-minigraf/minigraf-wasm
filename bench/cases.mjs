@@ -22,40 +22,46 @@ export async function cases(db, prefix, test) {
     try {
       let raw
       while ((raw = cursor.nextBatch(size)) != null) answer.push(...JSON.parse(raw))
-    } finally { cursor.close() }
-    return summary(answer)
+    } finally {
+      try { cursor.close() } finally { cursor.free() }
+    }
+    return answer
   }
   const shortlist = [
     ['prepared_execute/1k', () => rows(point.execute({ n: 500 })), [[500]]],
-    ['cursor_batch_1/1k', () => drain(1), [1000, 499500]],
-    ['cursor_batch_256/1k', () => drain(256), [1000, 499500]],
+    ['cursor_batch_1/1k', () => drain(1), [1000, 499500], summary],
+    ['cursor_batch_256/1k', () => drain(256), [1000, 499500], summary],
     ['set_roundtrip/2', () => rows(sets.execute({ s: new Set([1, 'x']) })), [[['x', 1]]]],
-    ['predicate/1k', () => summary(rows(predicate.execute())), [500, 249500]],
+    ['predicate/1k', () => rows(predicate.execute()), [500, 249500], summary],
     ['aggregate/1k', () => rows(aggregate.execute()), [[499500]]]
   ]
-  const metrics = {}
-  const executed = []
-  for (const [suffix, operation, expected] of shortlist) {
-    const id = `binding/${prefix}/${suffix}`
-    const samples = []
-    if (!test) for (let i = 0; i < 3; i++) {
-      if (JSON.stringify(operation()) !== JSON.stringify(expected)) throw new Error(`incorrect warmup: ${id}`)
-    }
-    for (let i = 0; i < (test ? 1 : 10); i++) {
-      let actual
-      if (test) actual = operation()
-      else {
-        const start = performance.now()
-        for (let j = 0; j < 20; j++) actual = operation()
-        samples.push((performance.now() - start) * 1e6 / 20)
+  try {
+    const metrics = {}
+    const executed = []
+    for (const [suffix, operation, expected, check = x => x] of shortlist) {
+      const id = `binding/${prefix}/${suffix}`
+      const samples = []
+      if (!test) for (let i = 0; i < 3; i++) {
+        if (JSON.stringify(check(operation())) !== JSON.stringify(expected)) throw new Error(`incorrect warmup: ${id}`)
       }
-      if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`incorrect result: ${id}`)
+      for (let i = 0; i < (test ? 1 : 10); i++) {
+        let actual
+        if (test) actual = operation()
+        else {
+          const start = performance.now()
+          for (let j = 0; j < 20; j++) actual = operation()
+          samples.push((performance.now() - start) * 1e6 / 20)
+        }
+        if (JSON.stringify(check(actual)) !== JSON.stringify(expected)) throw new Error(`incorrect result: ${id}`)
+      }
+      executed.push(id)
+      if (!test) {
+        samples.sort((a, b) => a - b)
+        metrics[id] = { latency: { value: (samples[4] + samples[5]) / 2 } }
+      }
     }
-    executed.push(id)
-    if (!test) {
-      samples.sort((a, b) => a - b)
-      metrics[id] = { latency: { value: (samples[4] + samples[5]) / 2 } }
-    }
+    return { metrics, executed }
+  } finally {
+    for (const query of [point, scan, sets, predicate, aggregate]) query.free()
   }
-  return { metrics, executed }
 }
