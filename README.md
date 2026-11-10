@@ -61,6 +61,21 @@ const pq = db.prepare('(query [:find ?n :where [?e :age $age] [?e :name ?n]])')
 JSON.parse(pq.execute({ age: 30 })).results
 ```
 
+`withMaxDerivedFacts(n)`, `withQueryMemoryLimit(bytes)` and `withMaxIterations(n)` each
+return a new `BrowserPreparedQuery` with that limit; the one they are called on is
+unchanged, and the new one keeps the database open as it does. An allowed keyword in
+the query text still overrides them. The argument is a non-negative integer `number`; at
+or above 2^32 − 1 (the browser's largest `usize`) it means no limit, and a negative,
+fractional or non-finite number throws `[API-017]`. These setters are the browser's way
+to set a query memory limit: `BrowserDb` takes no options, so the default override list
+applies and `:query-memory-limit` in query text throws `[API-025]`.
+
+```js
+const reach = db.prepare('(query [:find ?x ?y :where (reach ?x ?y)])')
+const small = reach.withMaxDerivedFacts(10000).withQueryMemoryLimit(16 * 1024 * 1024)
+small.execute({}) // [INT-020] or [QRY-012] past a limit; reach is unchanged
+```
+
 ### User functions
 
 `db.registerPredicate(name, fn)` adds a predicate, called in a query as `[(name ?v)]`.
@@ -107,9 +122,11 @@ await db.execute('(query [:find (product ?a) :where [?e :age ?a]])')
 
 `BrowserDb` keeps its pages in memory and writes them to IndexedDB; it has no `.graph`
 file, WAL or file lock. So the file-backed options of the other bindings
-(`read_only`, `allow_unlocked`, `page_cache_size`, the WAL options) do not apply, and
-the raw log writer (`LogWriter`) is not built for wasm32. The fact log is not exposed
-in the browser. To move data between a browser and a native database, use
+(`read_only`, `allow_unlocked`, `page_cache_size`, the WAL options) do not apply.
+`BrowserDb` takes no open options at all: the override list (`allow_overrides`), the
+query limits and `transaction_chunk_facts` keep their defaults, and a prepared query's
+limits are set with its setters. The raw log writer (`LogWriter`) is not built for
+wasm32, and the fact log is not exposed in the browser. To move data between a browser and a native database, use
 `exportGraph()` / `importGraph()`.
 
 ## WASI (`@minigraf/wasi`)

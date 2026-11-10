@@ -37,6 +37,23 @@ async function run() {
   }
   check(typeof missing === 'string' && missing.startsWith('[API-022] '), `a missing slot is API-022 (${missing})`)
 
+  // Limit setters (minigraf#872): each returns a new prepared query and
+  // leaves the receiver unchanged.
+  await mem.execute('(transact [[:n1 :next :n2] [:n2 :next :n3] [:n3 :next :n4]])')
+  await mem.execute('(rule [(reach ?x ?y) [?x :next ?y]])')
+  await mem.execute('(rule [(reach ?x ?y) [?x :next ?z] (reach ?z ?y)])')
+  const reach = mem.prepare('(query [:find ?x ?y :where (reach ?x ?y)])')
+  const limited = reach.withMaxIterations(1)
+  let rounds
+  try {
+    limited.execute({})
+  } catch (e) {
+    rounds = e
+  }
+  check(typeof rounds === 'string' && rounds.startsWith('[INT-020] '), `withMaxIterations(1) limits the new query (${rounds})`)
+  check(JSON.parse(reach.execute({})).results.length === 6, 'the receiver of withMaxIterations is unchanged')
+  check(JSON.parse(limited.withMaxIterations(2 ** 32).execute({})).results.length === 6, 'a setter at usize::MAX or more is no limit')
+
   // Sets (minigraf#316): a set value comes back as an array, and binds as a
   // JS Set or the typed form.
   await mem.execute('(transact [[:alice :tags #{1 "x"}]])')
