@@ -62,3 +62,17 @@ function repl(lines) {
   assert.match(r.stdout, /No results found/, "the REPL stopped after the error");
   console.log("ok: the error carries its code");
 }
+
+// Auto-commit (minigraf#824): the package is the REPL, and every command
+// commits on its own; there are no explicit transactions. A command that
+// fails does not undo the one before it.
+{
+  const r = repl([
+    '(transact [[:alice :name "Alice"]])',
+    '(transact [[:x :p/v 1 {:valid-from "2020-01-01T00:00:00Z"}] [:x :p/v 1 {:valid-from "2021-01-01T00:00:00Z"}]])',
+    "(query [:find ?n :where [?e :name ?n]])",
+  ]);
+  assert.match(r.stderr, /^Error: \[API-011\] /m, `the second command did not fail: ${r.stderr}`);
+  assert.match(r.stdout, /^"?Alice"?$/m, `the first command's fact is gone: ${r.stdout}`);
+  console.log("ok: every REPL command commits on its own");
+}

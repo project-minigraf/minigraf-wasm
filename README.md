@@ -118,6 +118,43 @@ await db.execute('(query [:find (product ?a) :where [?e :age ?a]])')
   the outer query has returned, so the function cannot wait for it, and the outer query
   does not see its write.
 
+### Write transactions
+
+`db.beginWrite()` opens a write transaction (minigraf#824; first in the release built on
+core v3.0.0, core commit `32d71ce0`). It stages several `transact`, `retract` and
+`query` statements, with queries seeing what it staged, and then commits them as one
+transaction or rolls them back:
+
+```js
+const tx = db.beginWrite()
+try {
+  tx.execute('(transact [[:alice :balance 70] [:bob :balance 80]])')
+  const [[balance]] = JSON.parse(tx.execute('(query [:find ?b :where [:alice :balance ?b]])')).results
+  if (balance >= 0) await tx.commit()
+} finally {
+  tx.rollback() // does nothing once committed
+}
+```
+
+- `beginWrite()` takes no options. `tx.execute(datalog)` is synchronous and returns
+  `execute`'s JSON; a staged write returns `{"ok":true}`, and a statement that throws
+  stages nothing and leaves the transaction open. No cursors or prepared queries inside
+  a transaction.
+- `await tx.commit()` applies everything as one transaction at once (other code sees the
+  facts as soon as `commit()` is called) and resolves after the IndexedDB write: the
+  commit is durable when the promise resolves. There is no WAL. A failed IndexedDB write
+  rejects it, as a failed `execute` write does. `tx.rollback()` discards the
+  transaction, and so does freeing it while open (`tx.free()`).
+- After a commit (successful or not) or a rollback the transaction is finished:
+  `execute` and `commit` throw or reject with `[API-018]`; `rollback` does nothing.
+- While it is open, every other call on its database that reads or writes (`execute`,
+  `query`, `prepare`, `checkpoint`, `importGraph`, another `beginWrite`, a prepared
+  query's `execute`/`query`) throws or rejects with `[INT-001]`, so other asynchronous
+  code cannot mistake the database for the transaction. A cursor opened before keeps
+  returning its rows. A user function its queries run gets `[INT-001]` the same way.
+  End every transaction, in a `finally`: JavaScript's collector may never free it.
+- Rules registered inside a transaction stay registered after a rollback.
+
 ### Not available in the browser
 
 `BrowserDb` keeps its pages in memory and writes them to IndexedDB; it has no `.graph`
@@ -146,6 +183,11 @@ await startMinigrafWasi(wasi);
 ```bash
 printf '%s\n' '(transact [[:alice :name "Alice"]])' '(query [:find ?n :where [?e :name ?n]])' | node repl.mjs
 ```
+
+Every command the REPL reads commits on its own, as one transaction, and a command that
+fails leaves the ones before it committed. There are no explicit transactions (no
+begin, commit or rollback commands, minigraf#824); for those, use `@minigraf/browser`
+or another binding.
 
 For the browser, or for a database that persists, use `@minigraf/browser`, or
 [`minigraf`](https://www.npmjs.com/package/minigraf) in Node.js.
