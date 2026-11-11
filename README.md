@@ -121,7 +121,7 @@ await db.execute('(query [:find (product ?a) :where [?e :age ?a]])')
 ### Write transactions
 
 `db.beginWrite()` opens a write transaction (minigraf#824; first in the release built on
-core v3.0.0, core commit `CORE_COMMIT`). It stages several `transact`, `retract` and
+core v3.0.0, core commit `639e7382`). It stages several `transact`, `retract` and
 `query` statements, with queries seeing what it staged, and then commits them as one
 transaction or rolls them back:
 
