@@ -87,6 +87,36 @@ async function run() {
   }
   check(thrown === '[QRY-014] user function `boom?` failed: boom', `a function that throws is QRY-014 (${thrown})`)
 
+  // Write transactions (minigraf#824): read-your-own-writes and a commit, a
+  // rollback, and the database's calls refused with INT-001 while one is open.
+  const txDb = BrowserDb.openInMemory()
+  await txDb.execute('(transact [[:alice :name "Alice"]])')
+  const nameQuery = '(query [:find ?n :where [?e :name ?n]])'
+  const sortedNames = (json) => JSON.parse(json).results.map((r) => r[0]).sort()
+  const tx = txDb.beginWrite()
+  check(JSON.stringify(JSON.parse(tx.execute('(transact [[:bob :name "Bob"]])'))) === '{"ok":true}', 'a staged write returns ok')
+  check(JSON.stringify(sortedNames(tx.execute(nameQuery))) === '["Alice","Bob"]', 'the transaction reads its own write')
+  let guarded
+  try {
+    await txDb.execute(nameQuery)
+  } catch (e) {
+    guarded = e
+  }
+  check(typeof guarded === 'string' && guarded.startsWith('[INT-001] '), `execute while a transaction is open is INT-001 (${guarded})`)
+  await tx.commit()
+  check(JSON.stringify(sortedNames(await txDb.execute(nameQuery))) === '["Alice","Bob"]', 'the commit is visible')
+  const rb = txDb.beginWrite()
+  rb.execute('(transact [[:carol :name "Carol"]])')
+  rb.rollback()
+  check(JSON.stringify(sortedNames(await txDb.execute(nameQuery))) === '["Alice","Bob"]', 'the rollback discards')
+  let finished
+  try {
+    rb.execute(nameQuery)
+  } catch (e) {
+    finished = e
+  }
+  check(typeof finished === 'string' && finished.startsWith('[API-018] '), `a finished transaction is API-018 (${finished})`)
+
   // Error type: a rejected promise whose reason starts with the error code,
   // as on every other API ("[PRS-011] Unknown command: nosuchcommand").
   let reason
