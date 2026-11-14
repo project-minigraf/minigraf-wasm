@@ -24,6 +24,27 @@ self.onmessage = async ({ data: { id, op, name, bytes } }) => {
         db.close()
         value = true
         break
+      case 'drop-all': {
+        const before = db.exportGraph()
+        const cursor = db.query('(query [:find ?n :where [?e :name ?n]])')
+        const prepared = db.prepare('(query [:find ?n :where [?e :name ?n]])')
+        const tx = db.beginWrite()
+        tx.execute('(transact [[:unsaved :name "unsaved"]])')
+        db.free()
+        let lockError
+        try { await BrowserDb.openOpfs(name) } catch (e) { lockError = String(e) }
+        cursor.free()
+        prepared.free()
+        tx.free()
+        db = await BrowserDb.openOpfs(name)
+        const after = db.exportGraph()
+        value = {
+          heldByDependents: lockError?.startsWith('[STG-026]') === true,
+          unchanged: before.length === after.length && before.every((b, i) => b === after[i]),
+          rows: rows('(query [:find ?n :where [?e :name ?n]])'),
+        }
+        break
+      }
       case 'stream':
         for (let sequence = 1; sequence <= 10000; sequence++) {
           await db.execute(`(transact [[:commit-${sequence} :sequence ${sequence}] [:commit-${sequence} :complete true]])`)

@@ -35,9 +35,10 @@ worker and keeps the database's pages in wasm memory. `openInMemory()` is transi
 
 The same name in the two persistent modes names two independent databases. There
 is no automatic fallback or migration. Invalid OPFS names (empty, `.`, `..`, a
-slash/backslash, or an import-reserved suffix) throw `[API-017]`; names are not
-normalised. The import staging entry is `<name>.graph-import`, removed after
-publication or recovery. A second worker/tab opening an in-use OPFS file gets
+slash/backslash, or NUL) throw `[API-017]`; names are not
+normalised. Database `<name>` maps to `<name>.graph`; the import staging entry
+is `<name>.graph-import`, which no database name maps to. No suffix is reserved.
+The staging entry is removed after publication or recovery. A second worker/tab opening an in-use OPFS file gets
 `[STG-026]`. Call `close()` to release its handle and lock immediately; terminating
 the worker also releases it. Main-thread or unsupported OPFS opens give `[API-026]`.
 
@@ -45,7 +46,8 @@ the worker also releases it. Main-thread or unsupported OPFS opens give `[API-02
 discards an open transaction. Earlier cursors and prepared queries fail with
 `[API-018]` after close. Reentrant close inside a UDF, or any call admitted during
 an OPFS import, gets `[API-027]`. Freeing a dependent, cursor `close()` and
-transaction `rollback()` remain permitted. OPFS import validates the whole image,
+transaction `rollback()` remain permitted. OPFS import validates the whole image
+(nonempty input must have a selectable meta; only an empty blob creates an empty database),
 publishes the complete old or new database across interruption, and invalidates
 earlier cursors and prepared queries on success. A failure at publication closes
 the database; reopen to recover.

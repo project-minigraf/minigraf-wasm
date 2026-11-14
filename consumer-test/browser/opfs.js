@@ -70,6 +70,13 @@ async function run() {
     check(JSON.stringify(await second.call('names')) === '[["Alice"]]', 'worker termination preserves acknowledged write and releases lock')
     await second.call('close')
     check(JSON.stringify(await second.call('indexeddb', { name })) === '[["Alice"]]', 'IndexedDB write/checkpoint/reopen in a dedicated worker')
+    const dropName = `free-${crypto.randomUUID()}`
+    await second.call('open', { name: dropName })
+    await second.call('write')
+    const freed = await second.call('drop-all', { name: dropName })
+    check(freed.heldByDependents, 'dependents retain lock after database free')
+    check(freed.unchanged && JSON.stringify(freed.rows) === '[["Alice"]]', 'freeing all owners releases lock without saving staged data')
+    await second.call('close')
   } finally {
     first.stop()
     second.stop()
