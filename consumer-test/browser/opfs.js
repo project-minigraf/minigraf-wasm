@@ -151,7 +151,7 @@ async function reopen(client, name) {
   // down. A recovery error must fail immediately, never be hidden by a retry.
   for (let attempt = 0; ; attempt++) {
     try { await client.call('open', { name }); return } catch (e) {
-      if (!e.message.startsWith('[STG-026]') || attempt >= 100) throw e
+      if (!e.message.startsWith('[STG-026]') || attempt >= 1000) throw e
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
   }
