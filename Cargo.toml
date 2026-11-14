@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Unreleased v3 core (format v8). Switches to version = "=3.0.0" at the v3.0.0 release.
-minigraf = { git = "https://github.com/project-minigraf/minigraf", rev = "2efff21d69fb1bb454d00ece9a7d88576849f9de", features = ["browser"] }
+minigraf = { git = "https://github.com/project-minigraf/minigraf", rev = "c3ed0475313a5d2f0dc78e018c69a2a184b6bb9c", features = ["browser"] }
 
 [features]
 browser = ["minigraf/browser"]
