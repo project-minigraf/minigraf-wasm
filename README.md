@@ -46,9 +46,10 @@ the worker also releases it. Main-thread or unsupported OPFS opens give `[API-02
 discards an open transaction. Earlier cursors and prepared queries fail with
 `[API-018]` after close. Reentrant close inside a UDF, or any call admitted during
 an OPFS import, gets `[API-027]`. Freeing a dependent, cursor `close()` and
-transaction `rollback()` remain permitted. OPFS import validates the whole image
-(nonempty input must have a selectable meta; only an empty blob creates an empty database),
-publishes the complete old or new database across interruption, and invalidates
+transaction `rollback()` remain permitted. OPFS import admits an empty blob;
+a nonempty v8 image with a selectable meta and complete, verified contents
+(including an empty v8 image); or a supported v7 image that migrates completely.
+It publishes the complete old or new database across interruption, and invalidates
 earlier cursors and prepared queries on success. A failure at publication closes
 the database; reopen to recover.
 
