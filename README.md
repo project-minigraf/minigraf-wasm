@@ -24,6 +24,84 @@ const result = JSON.parse(await db.execute('(query [:find ?n :where [?e :name ?n
 console.log(result.results[0][0])  // "Alice"
 ```
 
+### Choosing a storage mode
+
+From core v3.0.0, `BrowserDb.openOpfs(name)` stores one real `<name>.graph` file
+in the Origin Private File System (OPFS). It requires a dedicated module worker
+in a secure context (HTTPS or localhost). Pages are read on demand through a
+256-page cache; commits write directly to the file, with no WAL. OPFS starts at
+Tier 2 support. `BrowserDb.open(name)` uses IndexedDB on the main thread or in a
+worker and keeps the database's pages in wasm memory. `openInMemory()` is transient.
+
+The same name in the two persistent modes names two independent databases. There
+is no automatic fallback or migration. Invalid OPFS names (empty, `.`, `..`, a
+slash/backslash, or an import-reserved suffix) throw `[API-017]`; names are not
+normalised. The import staging entry is `<name>.graph-import`, removed after
+publication or recovery. A second worker/tab opening an in-use OPFS file gets
+`[STG-026]`. Call `close()` to release its handle and lock immediately; terminating
+the worker also releases it. Main-thread or unsupported OPFS opens give `[API-026]`.
+
+`close()` is synchronous and idempotent in all modes. It performs no save and
+discards an open transaction. Earlier cursors and prepared queries fail with
+`[API-018]` after close. Reentrant close inside a UDF, or any call admitted during
+an OPFS import, gets `[API-027]`. Freeing a dependent, cursor `close()` and
+transaction `rollback()` remain permitted. OPFS import validates the whole image,
+publishes the complete old or new database across interruption, and invalidates
+earlier cursors and prepared queries on success. A failure at publication closes
+the database; reopen to recover.
+
+A write resolves after both page and meta flushes. Browser `flush()` does not
+promise power-loss durability. A rejected write means **unconfirmed**, and may be
+wholly present after reopen; later writes fail with `[STG-046]` until close/reopen.
+If one meta page is damaged, OPFS reopens at the other valid page, which can lose
+an acknowledged commit if its newest meta later rots. Origin quota and eviction
+are browser-managed, as with IndexedDB. The application may request
+`navigator.storage.persist()`; Minigraf never does so itself. See the core
+[durability contract](https://github.com/project-minigraf/minigraf/blob/v3/docs/DURABILITY.md).
+
+### OPFS worker
+
+Serve these files alongside the installed package (the worker's import URL below
+assumes `/node_modules` is served; a bundler may resolve the package instead).
+Save this as `opfs-example-worker.js`:
+
+```js
+import init, { BrowserDb } from '/node_modules/@minigraf/browser/minigraf_wasm.js'
+
+const ready = init()
+self.onmessage = async ({ data: { name } }) => {
+  let db
+  try {
+    await ready
+    db = await BrowserDb.openOpfs(name)
+    await db.execute('(transact [[:alice :name "Alice"]])')
+    const names = JSON.parse(await db.execute('(query [:find ?n :where [?e :name ?n]])')).results
+    self.postMessage({ names })
+  } catch (error) {
+    self.postMessage({ error: String(error) })
+  } finally {
+    db?.close()
+  }
+}
+```
+
+From a page module:
+
+```js
+const worker = new Worker('./opfs-example-worker.js', { type: 'module' })
+worker.onmessage = ({ data }) => {
+  if (data.error) console.error(data.error)
+  else console.log(data.names) // [["Alice"]]
+  worker.terminate()
+}
+worker.postMessage({ name: 'agent-memory' })
+```
+
+To move a database between modes, export its v8 bytes with `source.exportGraph()`
+and pass them to `await target.importGraph(bytes)` in the other mode. With a
+worker, send the `Uint8Array` by `postMessage`; after importing, close both handles
+when finished. Migration is explicit and replaces the target's contents.
+
 ### Query cursors
 
 `db.query(datalog)` returns a `BrowserCursor` whose answer is fixed when it opens.
@@ -141,8 +219,7 @@ try {
   stages nothing and leaves the transaction open. No cursors or prepared queries inside
   a transaction.
 - `await tx.commit()` applies everything as one transaction at once (other code sees the
-  facts as soon as `commit()` is called) and resolves after the IndexedDB write: the
-  commit is durable when the promise resolves. There is no WAL. A failed IndexedDB write
+  facts as soon as `commit()` is called) and resolves after the IndexedDB write or OPFS flushes. There is no WAL. A failed storage operation
   rejects it, as a failed `execute` write does. `tx.rollback()` discards the
   transaction, and so does freeing it while open (`tx.free()`).
 - After a commit (successful or not) or a rollback the transaction is finished:
@@ -157,9 +234,11 @@ try {
 
 ### Not available in the browser
 
-`BrowserDb` keeps its pages in memory and writes them to IndexedDB; it has no `.graph`
-file, WAL or file lock. So the file-backed options of the other bindings
-(`read_only`, `allow_unlocked`, `page_cache_size`, the WAL options) do not apply.
+`BrowserDb.open()` keeps its pages in memory and writes them to IndexedDB; OPFS
+mode uses a `.graph` file inside the origin. Neither mode exposes a native
+filesystem path or WAL. OPFS uses its exclusive sync handle as a browser lock.
+The file-backed options of the other bindings (`read_only`, `allow_unlocked`,
+`page_cache_size`, the WAL options) cannot be configured here.
 `BrowserDb` takes no open options at all: the override list (`allow_overrides`), the
 query limits and `transaction_chunk_facts` keep their defaults, and a prepared query's
 limits are set with its setters. The raw log writer (`LogWriter`) is not built for

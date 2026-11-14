@@ -169,7 +169,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 [[package]]
 name = "minigraf"
 version = "2.0.5"
-source = "git+https://github.com/project-minigraf/minigraf?rev=32d71ce013a5af0748185fa69403d9151ba94453#32d71ce013a5af0748185fa69403d9151ba94453"
+source = "git+https://github.com/project-minigraf/minigraf?rev=6fa1582f847aa1412073b1142702bcac723c2528#6fa1582f847aa1412073b1142702bcac723c2528"
 dependencies = [
  "anyhow",
  "chrono",

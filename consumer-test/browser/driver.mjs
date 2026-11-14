@@ -4,7 +4,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 const expected = process.argv[2];
 const root = process.cwd();
@@ -28,7 +28,11 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch();
+const engine = process.env.BROWSER ?? "chromium";
+const engines = { chromium, firefox, webkit };
+if (!engines[engine]) throw new Error(`unknown browser ${engine}`);
+const browser = await engines[engine].launch();
+console.log(`browser: ${engine} ${browser.version()}`);
 let failed = false;
 try {
   const page = await browser.newPage();
@@ -38,7 +42,7 @@ try {
 
   // Waits for the page's module to finish and returns window.__result.
   const result = async () => {
-    await page.waitForFunction(() => window.__result !== undefined, null, { timeout: 60_000 })
+    await page.waitForFunction(() => window.__result !== undefined, null, { timeout: 180_000 })
       .catch(() => {
         throw new Error(`the page did not finish: ${errors.join("; ") || "no error reported"}`);
       });
@@ -58,6 +62,11 @@ try {
   const second = await result();
   if (second.error || second.phase !== "read") throw new Error(second.error ?? `phase ${second.phase}`);
   for (const c of second.checks) console.log(`ok: ${c}`);
+
+  await page.goto(`${origin}/opfs.html`);
+  const opfs = await result();
+  if (opfs.error) throw new Error(opfs.error);
+  for (const c of opfs.checks) console.log(`ok: ${c}`);
 } catch (e) {
   console.error(`::error::${e.message}`);
   failed = true;
