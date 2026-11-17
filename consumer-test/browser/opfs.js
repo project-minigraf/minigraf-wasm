@@ -51,6 +51,20 @@ async function run() {
   try { await BrowserDb.openOpfs('main-thread') } catch (e) { mainError = String(e) }
   check(mainError?.startsWith('[API-026]'), 'main-thread open rejects with API-026')
 
+  // An engine without OPFS in workers must reject openOpfs with API-026; the
+  // driver accepts that only where it is a known engine limitation.
+  const probe = worker()
+  let unavailable
+  try {
+    const name = `probe-${crypto.randomUUID()}`
+    try { await probe.call('open', { name }); await probe.call('close') } catch (e) {
+      if (!e.message.startsWith('[API-026]')) throw e
+      unavailable = e.message
+      check(JSON.stringify(await probe.call('indexeddb', { name })) === '[["Alice"]]', 'IndexedDB write/checkpoint/reopen in a dedicated worker')
+    }
+  } finally { probe.stop() }
+  if (unavailable) return { checks, unavailable }
+
   const first = worker(), second = worker()
   try {
     const name = `consumer-${crypto.randomUUID()}`
@@ -151,7 +165,7 @@ async function run() {
     })
     check(JSON.stringify(names) === '[["Alice"]]', 'README module-worker example')
   } finally { example.terminate() }
-  return checks
+  return { checks }
 }
 async function reopen(client, name) {
   // Retry only the transient lock while the terminated worker is being torn
@@ -163,5 +177,5 @@ async function reopen(client, name) {
     }
   }
 }
-run().then((checks) => { window.__result = { checks } })
+run().then((result) => { window.__result = result })
   .catch((error) => { window.__result = { error: String(error), checks } })

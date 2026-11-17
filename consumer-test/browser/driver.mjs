@@ -67,6 +67,12 @@ try {
   const opfs = await result();
   if (opfs.error) throw new Error(opfs.error);
   for (const c of opfs.checks) console.log(`ok: ${c}`);
+  if (opfs.unavailable) {
+    // Playwright's Linux WebKit has no OPFS in workers, so openOpfs must
+    // reject with API-026 there. Anywhere else OPFS is required.
+    if (engine !== "webkit") throw new Error(`OPFS unavailable on ${engine}: ${opfs.unavailable}`);
+    console.log(`limitation: ${engine} ${browser.version()} has no OPFS in a dedicated worker; openOpfs rejected with ${opfs.unavailable}`);
+  }
 } catch (e) {
   console.error(`::error::${e.message}`);
   failed = true;
