@@ -69,8 +69,11 @@ try {
   for (const c of opfs.checks) console.log(`ok: ${c}`);
   if (opfs.unavailable) {
     // Playwright's Linux WebKit has no OPFS in workers, so openOpfs must
-    // reject with API-026 there. Anywhere else OPFS is required.
-    if (engine !== "webkit") throw new Error(`OPFS unavailable on ${engine}: ${opfs.unavailable}`);
+    // reject with API-026 there. Anywhere else (macOS WebKit included) OPFS
+    // is required.
+    if (engine !== "webkit" || process.platform !== "linux") {
+      throw new Error(`OPFS unavailable on ${engine} (${process.platform}): ${opfs.unavailable}`);
+    }
     // Only the known missing capability; any other API-026 on WebKit fails.
     if (!opfs.unavailable.includes("no navigator.storage.getDirectory()")) {
       throw new Error(`unexpected OPFS rejection on ${engine}: ${opfs.unavailable}`);
