@@ -2,9 +2,10 @@
 // quick start and the contract pages in headless Chromium.
 // usage: node driver.mjs <expected version>
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 const expected = process.argv[2];
 const root = process.cwd();
@@ -28,17 +29,32 @@ const server = createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch();
+const engine = process.env.BROWSER ?? "chromium";
+const engines = { chromium, firefox, webkit };
+if (!engines[engine]) throw new Error(`unknown browser ${engine}`);
+// WebKit treats Playwright's default (ephemeral) context like a private
+// window and denies OPFS there, so WebKit runs in a persistent context with
+// a fresh profile directory.
+let browser, context;
+if (engine === "webkit") {
+  const profile = await mkdtemp(join(tmpdir(), "minigraf-webkit-"));
+  context = await webkit.launchPersistentContext(profile);
+} else {
+  browser = await engines[engine].launch();
+  context = await browser.newContext();
+}
+const version = browser ? browser.version() : context.browser()?.version() ?? "(persistent context)";
+console.log(`browser: ${engine} ${version}`);
 let failed = false;
 try {
-  const page = await browser.newPage();
+  const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => console.log(`  [page] ${m.text()}`));
 
   // Waits for the page's module to finish and returns window.__result.
   const result = async () => {
-    await page.waitForFunction(() => window.__result !== undefined, null, { timeout: 60_000 })
+    await page.waitForFunction(() => window.__result !== undefined, null, { timeout: 180_000 })
       .catch(() => {
         throw new Error(`the page did not finish: ${errors.join("; ") || "no error reported"}`);
       });
@@ -58,11 +74,30 @@ try {
   const second = await result();
   if (second.error || second.phase !== "read") throw new Error(second.error ?? `phase ${second.phase}`);
   for (const c of second.checks) console.log(`ok: ${c}`);
+
+  await page.goto(`${origin}/opfs.html`);
+  const opfs = await result();
+  if (opfs.error) throw new Error(opfs.error);
+  for (const c of opfs.checks) console.log(`ok: ${c}`);
+  if (opfs.unavailable) {
+    // Playwright's Linux WebKit has no OPFS in workers, so openOpfs must
+    // reject with API-026 there. Anywhere else (macOS WebKit included) OPFS
+    // is required.
+    if (engine !== "webkit" || process.platform !== "linux") {
+      throw new Error(`OPFS unavailable on ${engine} (${process.platform}): ${opfs.unavailable}`);
+    }
+    // Only the known missing capability; any other API-026 on WebKit fails.
+    if (!opfs.unavailable.includes("no navigator.storage.getDirectory()")) {
+      throw new Error(`unexpected OPFS rejection on ${engine}: ${opfs.unavailable}`);
+    }
+    console.log(`limitation: ${engine} ${version} has no OPFS in a dedicated worker; openOpfs rejected with ${opfs.unavailable}`);
+  }
 } catch (e) {
   console.error(`::error::${e.message}`);
   failed = true;
 } finally {
-  await browser.close();
+  await context.close();
+  if (browser) await browser.close();
   server.close();
 }
 process.exit(failed ? 1 : 0);

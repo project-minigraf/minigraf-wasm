@@ -78,9 +78,9 @@ case "$PKG" in
     cp "$HERE"/browser/*.html "$HERE"/browser/*.js "$HERE/browser/driver.mjs" .
     npm install --no-audit --no-fund --no-save "playwright@$PLAYWRIGHT_VERSION"
     if [ "${PLAYWRIGHT_DEPS:-}" = 1 ]; then
-      npx playwright install --with-deps chromium
+      npx playwright install --with-deps "${BROWSER:-chromium}"
     else
-      npx playwright install chromium
+      npx playwright install "${BROWSER:-chromium}"
     fi
     node driver.mjs "$VERSION"
     ;;

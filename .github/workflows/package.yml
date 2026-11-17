@@ -51,7 +51,7 @@ jobs:
             const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
             pkg.name = '@minigraf/browser';
             pkg.version = process.env.VERSION;
-            pkg.description = 'Minigraf for the browser: a bi-temporal graph database with Datalog queries, persisted in IndexedDB';
+            pkg.description = 'Minigraf for the browser: a bi-temporal graph database with Datalog queries, persisted in IndexedDB or OPFS';
             pkg.files.push('LICENSE-MIT', 'LICENSE-APACHE');
             fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
           "
