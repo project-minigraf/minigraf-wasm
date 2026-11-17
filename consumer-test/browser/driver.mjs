@@ -2,7 +2,8 @@
 // quick start and the contract pages in headless Chromium.
 // usage: node driver.mjs <expected version>
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { chromium, firefox, webkit } from "playwright";
 
@@ -31,11 +32,22 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const engine = process.env.BROWSER ?? "chromium";
 const engines = { chromium, firefox, webkit };
 if (!engines[engine]) throw new Error(`unknown browser ${engine}`);
-const browser = await engines[engine].launch();
-console.log(`browser: ${engine} ${browser.version()}`);
+// WebKit treats Playwright's default (ephemeral) context like a private
+// window and denies OPFS there, so WebKit runs in a persistent context with
+// a fresh profile directory.
+let browser, context;
+if (engine === "webkit") {
+  const profile = await mkdtemp(join(tmpdir(), "minigraf-webkit-"));
+  context = await webkit.launchPersistentContext(profile);
+} else {
+  browser = await engines[engine].launch();
+  context = await browser.newContext();
+}
+const version = browser ? browser.version() : context.browser()?.version() ?? "(persistent context)";
+console.log(`browser: ${engine} ${version}`);
 let failed = false;
 try {
-  const page = await browser.newPage();
+  const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => console.log(`  [page] ${m.text()}`));
@@ -78,13 +90,14 @@ try {
     if (!opfs.unavailable.includes("no navigator.storage.getDirectory()")) {
       throw new Error(`unexpected OPFS rejection on ${engine}: ${opfs.unavailable}`);
     }
-    console.log(`limitation: ${engine} ${browser.version()} has no OPFS in a dedicated worker; openOpfs rejected with ${opfs.unavailable}`);
+    console.log(`limitation: ${engine} ${version} has no OPFS in a dedicated worker; openOpfs rejected with ${opfs.unavailable}`);
   }
 } catch (e) {
   console.error(`::error::${e.message}`);
   failed = true;
 } finally {
-  await browser.close();
+  await context.close();
+  if (browser) await browser.close();
   server.close();
 }
 process.exit(failed ? 1 : 0);
